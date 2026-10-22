@@ -3994,7 +3994,18 @@ TONE: Professional, concise, and helpful.`;
           })
         });
 
-        const data = await res.json();
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error(res.status === 401 || res.status === 403
+            ? 'Access denied. Please sign in or check site access permissions.'
+            : 'Chat server returned an invalid response (HTTP ' + res.status + '). Please try again.');
+        }
+
+        if (!res.ok) {
+          throw new Error(data?.error?.message || 'Chat request failed (HTTP ' + res.status + '). Please try again.');
+        }
 
         if (data && data.choices && data.choices[0]) {
           reply = data.choices[0].message.content || 'No response. Please try again.';
@@ -4018,18 +4029,11 @@ TONE: Professional, concise, and helpful.`;
     } catch (err) {
       typing.remove();
 
-      // If the API fails, fall back to demo mode
-      if (!state.demoMode) {
-        state.demoMode = true;
-        updateTempIndicator();
-        showToast('API not configured. Switched to demo mode.', 3000);
-        const demoReply = DEMO_REPLIES[Math.floor(Math.random() * DEMO_REPLIES.length)];
-        renderMessage(demoReply, 'bot', true);
-        chat.messages.push({ role: 'assistant', content: demoReply });
-        saveChats();
-      } else {
-        renderMessage('Error: ' + err.message, 'bot', false);
+      const message = err.message || 'Could not connect to the chat server. Please try again.';
+      if (currentChat() === chat) {
+        renderMessage('Error: ' + message, 'bot', false);
       }
+      showToast(message, 6000);
     }
 
     state.loading = false;

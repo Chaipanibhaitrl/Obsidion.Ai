@@ -58,7 +58,7 @@ export default async (req) => {
   }
 
   // Login check: agar FIREBASE_API_KEY set hai to sirf sign in users ko jawab milega
-  const FB = process.env.FIREBASE_API_KEY;
+  const FB = Netlify.env.get("FIREBASE_API_KEY");
   if (FB) {
     const tok = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
     if (!tok) return json({ error: { message: "Please sign in first." } }, 401);
@@ -73,7 +73,7 @@ export default async (req) => {
   }
 
   // Agar Netlify mein key nahi daali to saaf message milega
-  const KEY = process.env.GROQ_API_KEY;
+  const KEY = Netlify.env.get("GROQ_API_KEY");
   if (!KEY) {
     return json({
       error: { message: "GROQ_API_KEY is not set on the server. Add it in Netlify environment variables and redeploy." }
@@ -135,6 +135,7 @@ export default async (req) => {
   const hasImg = imageCount > 0;
   try {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      signal: AbortSignal.timeout(30_000),
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -142,7 +143,7 @@ export default async (req) => {
         "Authorization": "Bearer " + KEY
       },
       body: JSON.stringify({
-        model: hasImg ? (process.env.VISION_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct") : "openai/gpt-oss-120b",
+        model: hasImg ? (Netlify.env.get("VISION_MODEL") || "meta-llama/llama-4-scout-17b-16e-instruct") : "openai/gpt-oss-120b",
         messages,
         temperature: 0.8,
         ...(hasImg ? {} : { reasoning_effort: "low" }),
@@ -150,10 +151,18 @@ export default async (req) => {
       })
     });
 
-    const data = await r.json();
+    let data;
+    try {
+      data = await r.json();
+    } catch {
+      return json({ error: { message: "AI service returned an invalid response. Please try again." } }, 502);
+    }
     return json(data, r.status);
   } catch (e) {
-    return json({ error: { message: "Server error" } }, 500);
+    const timedOut = e.name === "TimeoutError" || e.name === "AbortError";
+    return json({ error: { message: timedOut
+      ? "AI service took too long to respond. Please try again."
+      : "Could not reach the AI service. Please try again." } }, timedOut ? 504 : 502);
   }
 };
 
